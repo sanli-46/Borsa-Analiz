@@ -11,9 +11,28 @@ import {
   GetStockNewsParams,
   GetStockSummaryParams,
 } from "@workspace/api-zod";
+import { heavyLimiter, watchlistLimiter } from "../lib/rate-limit";
+import { analysisCache, summaryCache, watchlistCache } from "../lib/cache";
 
 const yahooFinance = new YahooFinanceClass();
 const router: IRouter = Router();
+
+const UPSTREAM_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let handle: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    handle = setTimeout(
+      () => reject(new Error("Upstream request timed out")),
+      ms
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(handle));
+}
+
+const ALLOWED_ANALYSIS_PERIODS = new Set([
+  "1mo", "3mo", "6mo", "1y", "2y", "5y",
+]);
 
 function formatNumber(n: unknown): number | undefined {
   if (n == null || typeof n !== "number" || isNaN(n)) return undefined;
@@ -310,15 +329,36 @@ function detectPatterns(
 }
 
 // GET /stock/analysis/:symbol — full technical analysis
-router.get("/stock/analysis/:symbol", async (req, res): Promise<void> => {
-  const symbol = decodeURIComponent(req.params.symbol);
-  const period = (req.query.period as string) || "6mo";
+router.get("/stock/analysis/:symbol", heavyLimiter, async (req, res): Promise<void> => {
+  const rawSymbol = req.params.symbol;
+  if (!rawSymbol || typeof rawSymbol !== "string" || rawSymbol.length > 20) {
+    res.status(400).json({ error: "Geçersiz hisse senedi sembolü." });
+    return;
+  }
+  const symbol = decodeURIComponent(rawSymbol).toUpperCase();
+
+  const rawPeriod = (req.query.period as string) || "6mo";
+  if (!ALLOWED_ANALYSIS_PERIODS.has(rawPeriod)) {
+    res.status(400).json({ error: "Geçersiz dönem. İzin verilen değerler: 1mo, 3mo, 6mo, 1y, 2y, 5y." });
+    return;
+  }
+  const period = rawPeriod;
+
+  const cacheKey = `analysis:${symbol}:${period}`;
+  const cached = analysisCache.get(cacheKey);
+  if (cached !== undefined) {
+    res.json(cached);
+    return;
+  }
 
   try {
-    const historical = await yahooFinance.chart(symbol, {
-      period1: getPeriodStart(period),
-      interval: "1d",
-    });
+    const historical = await withTimeout(
+      yahooFinance.chart(symbol, {
+        period1: getPeriodStart(period),
+        interval: "1d",
+      }),
+      UPSTREAM_TIMEOUT_MS
+    );
 
     const rawQuotes = (historical.quotes || []).filter(
       (q: Record<string, unknown>) => q.open != null && q.close != null && q.high != null && q.low != null
@@ -503,7 +543,7 @@ router.get("/stock/analysis/:symbol", async (req, res): Promise<void> => {
       atr: atrAll[i],
     }));
 
-    res.json({
+    const responseBody = {
       symbol,
       currentPrice,
       trend,
@@ -523,7 +563,9 @@ router.get("/stock/analysis/:symbol", async (req, res): Promise<void> => {
       fibonacci: { trend: fibTrend, high: recentHigh, low: recentLow, levels: fibLevels },
       pivotPoints,
       chartData,
-    });
+    };
+    analysisCache.set(cacheKey, responseBody);
+    res.json(responseBody);
   } catch (err) {
     req.log.error({ err }, "Failed to run analysis");
     res.status(500).json({ error: "Failed to run analysis" });
@@ -739,7 +781,7 @@ router.get("/stock/financials/:symbol", async (req, res): Promise<void> => {
     });
 
     const incomeStatements = (
-      (summary.incomeStatementHistory?.incomeStatementHistory as Record<string, unknown>[]) || []
+      (summary.incomeStatementHistory?.incomeStatementHistory as unknown as Record<string, unknown>[]) || []
     ).map((s: Record<string, unknown>) => ({
       date: s.endDate instanceof Date ? s.endDate.toISOString().split("T")[0] : String(s.endDate),
       totalRevenue: formatNumber(s.totalRevenue),
@@ -750,7 +792,7 @@ router.get("/stock/financials/:symbol", async (req, res): Promise<void> => {
     }));
 
     const balanceSheets = (
-      (summary.balanceSheetHistory?.balanceSheetStatements as Record<string, unknown>[]) || []
+      (summary.balanceSheetHistory?.balanceSheetStatements as unknown as Record<string, unknown>[]) || []
     ).map((s: Record<string, unknown>) => ({
       date: s.endDate instanceof Date ? s.endDate.toISOString().split("T")[0] : String(s.endDate),
       totalAssets: formatNumber(s.totalAssets),
@@ -761,7 +803,7 @@ router.get("/stock/financials/:symbol", async (req, res): Promise<void> => {
     }));
 
     const cashFlows = (
-      (summary.cashflowStatementHistory?.cashflowStatements as Record<string, unknown>[]) || []
+      (summary.cashflowStatementHistory?.cashflowStatements as unknown as Record<string, unknown>[]) || []
     ).map((s: Record<string, unknown>) => ({
       date: s.endDate instanceof Date ? s.endDate.toISOString().split("T")[0] : String(s.endDate),
       operatingCashflow: formatNumber(s.totalCashFromOperatingActivities),
@@ -960,7 +1002,7 @@ router.get("/stock/news/:symbol", async (req, res): Promise<void> => {
 });
 
 // GET /stock/summary/:symbol
-router.get("/stock/summary/:symbol", async (req, res): Promise<void> => {
+router.get("/stock/summary/:symbol", heavyLimiter, async (req, res): Promise<void> => {
   const params = GetStockSummaryParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -971,23 +1013,33 @@ router.get("/stock/summary/:symbol", async (req, res): Promise<void> => {
     ? params.data.symbol[0]
     : params.data.symbol;
 
+  const cacheKey = `summary:${symbol}`;
+  const cached = summaryCache.get(cacheKey);
+  if (cached !== undefined) {
+    res.json(cached);
+    return;
+  }
+
   try {
     // Fetch quote and 1-year history in parallel
-    const [quoteSummary, historical] = await Promise.all([
-      yahooFinance.quoteSummary(symbol, {
-        modules: [
-          "price",
-          "summaryDetail",
-          "defaultKeyStatistics",
-          "financialData",
-          "assetProfile",
-        ],
-      }),
-      yahooFinance.chart(symbol, {
-        period1: getPeriodStart("1y"),
-        interval: "1d",
-      }),
-    ]);
+    const [quoteSummary, historical] = await withTimeout(
+      Promise.all([
+        yahooFinance.quoteSummary(symbol, {
+          modules: [
+            "price",
+            "summaryDetail",
+            "defaultKeyStatistics",
+            "financialData",
+            "assetProfile",
+          ],
+        }),
+        yahooFinance.chart(symbol, {
+          period1: getPeriodStart("1y"),
+          interval: "1d",
+        }),
+      ]),
+      UPSTREAM_TIMEOUT_MS
+    );
 
     const price = (quoteSummary.price || {}) as Record<string, unknown>;
     const summary = (quoteSummary.summaryDetail || {}) as Record<string, unknown>;
@@ -1110,7 +1162,7 @@ router.get("/stock/summary/:symbol", async (req, res): Promise<void> => {
       targetMeanPrice: formatNumber(financial.targetMeanPrice),
     };
 
-    res.json({
+    const responseBody = {
       symbol,
       quote,
       weeklyChange,
@@ -1123,7 +1175,9 @@ router.get("/stock/summary/:symbol", async (req, res): Promise<void> => {
       currentRsi,
       analystRating: financial.recommendationKey as string,
       overallSignal,
-    });
+    };
+    summaryCache.set(cacheKey, responseBody);
+    res.json(responseBody);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch stock summary");
     res.status(500).json({ error: "Failed to fetch stock summary" });
@@ -1152,8 +1206,16 @@ const BIST_SYMBOLS = [
 ];
 
 // GET /stock/watchlist?market=us|bist|all
-router.get("/stock/watchlist", async (req, res): Promise<void> => {
-  const market = (req.query.market as string) || "all";
+router.get("/stock/watchlist", watchlistLimiter, async (req, res): Promise<void> => {
+  const rawMarket = (req.query.market as string) || "all";
+  const market = rawMarket === "us" ? "us" : rawMarket === "bist" ? "bist" : "all";
+
+  const cacheKey = `watchlist:${market}`;
+  const cached = watchlistCache.get(cacheKey);
+  if (cached !== undefined) {
+    res.json(cached);
+    return;
+  }
 
   let symbols: string[];
   if (market === "us") {
@@ -1161,7 +1223,6 @@ router.get("/stock/watchlist", async (req, res): Promise<void> => {
   } else if (market === "bist") {
     symbols = BIST_SYMBOLS;
   } else {
-    // default: top picks from both
     symbols = [
       "AAPL","MSFT","GOOGL","AMZN","NVDA","TSLA","META","JPM","V","NFLX",
       "THYAO.IS","GARAN.IS","AKBNK.IS","EREGL.IS","SASA.IS","ASELS.IS","BIMAS.IS","KCHOL.IS","TUPRS.IS","TCELL.IS",
@@ -1169,15 +1230,15 @@ router.get("/stock/watchlist", async (req, res): Promise<void> => {
   }
 
   try {
-    // Fetch in batches of 20 to avoid rate limiting
     const batchSize = 20;
     const batches: string[][] = [];
     for (let i = 0; i < symbols.length; i += batchSize) {
       batches.push(symbols.slice(i, i + batchSize));
     }
 
-    const batchResults = await Promise.all(
-      batches.map((batch) => yahooFinance.quote(batch))
+    const batchResults = await withTimeout(
+      Promise.all(batches.map((batch) => yahooFinance.quote(batch))),
+      UPSTREAM_TIMEOUT_MS
     );
 
     const allQuotes = batchResults.flatMap((q) =>
@@ -1196,6 +1257,7 @@ router.get("/stock/watchlist", async (req, res): Promise<void> => {
         currency: q.currency,
       }));
 
+    watchlistCache.set(cacheKey, results);
     res.json(results);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch watchlist");
