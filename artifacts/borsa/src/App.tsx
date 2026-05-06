@@ -9,8 +9,10 @@ import Stock from "@/pages/stock";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       retry: 1,
+      staleTime: 20000,
     }
   }
 });

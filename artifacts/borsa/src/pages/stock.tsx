@@ -11,13 +11,18 @@ import { StockChart } from "@/components/stock-chart";
 import { FinancialsChart } from "@/components/financials-chart";
 import { AnalysisPanel } from "@/components/analysis-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, TrendingDown, ExternalLink } from "lucide-react";
+import { TrendingUp, TrendingDown, ExternalLink, RefreshCw } from "lucide-react";
+
+const QUOTE_REFRESH = 20000; // 20 saniye
 
 export default function Stock() {
   const params = useParams<{ symbol: string }>();
   const symbol = params.symbol?.toUpperCase() || "";
 
-  const { data: quote, isLoading: isQuoteLoading } = useGetStockQuote(symbol);
+  const { data: quote, isLoading: isQuoteLoading, isFetching: isQuoteFetching, dataUpdatedAt } = useGetStockQuote(
+    symbol,
+    { query: { refetchInterval: QUOTE_REFRESH, staleTime: QUOTE_REFRESH } }
+  );
   const { data: summary, isLoading: isSummaryLoading } = useGetStockSummary(symbol);
   const { data: financials } = useGetStockFinancials(symbol);
   const { data: news } = useGetStockNews(symbol);
@@ -55,6 +60,16 @@ export default function Stock() {
               <span className="px-2 py-1 bg-muted text-muted-foreground text-xs font-medium rounded border border-border">
                 {quote.exchange}
               </span>
+              {isQuoteFetching && !isQuoteLoading ? (
+                <span className="flex items-center gap-1 text-xs text-primary">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                </span>
+              ) : (
+                <span className="relative flex h-2 w-2" title="Otomatik yenileniyor">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
+                </span>
+              )}
             </div>
             <h2 className="text-xl text-muted-foreground font-medium">{quote.longName || quote.shortName}</h2>
             <div className="text-sm text-muted-foreground mt-2">
@@ -63,7 +78,7 @@ export default function Stock() {
           </div>
           
           <div className="text-right">
-            <div className="text-4xl font-bold font-mono tracking-tight">
+            <div className="text-4xl font-bold font-mono tracking-tight transition-all">
               {formatCurrency(quote.regularMarketPrice, quote.currency)}
             </div>
             <div className={`flex items-center justify-end gap-2 text-lg font-medium mt-1 ${isPositive ? 'text-success' : 'text-destructive'}`}>
@@ -71,8 +86,13 @@ export default function Stock() {
               <span>{quote.regularMarketChange! > 0 ? "+" : ""}{formatCurrency(quote.regularMarketChange || 0, quote.currency)}</span>
               <span>({formatPercent(quote.regularMarketChangePercent || 0)})</span>
             </div>
-            <div className="text-xs text-muted-foreground mt-2">
-              Kapanış: {formatCurrency(quote.regularMarketPreviousClose || 0, quote.currency)}
+            <div className="text-xs text-muted-foreground mt-2 flex items-center justify-end gap-2">
+              <span>Kapanış: {formatCurrency(quote.regularMarketPreviousClose || 0, quote.currency)}</span>
+              {dataUpdatedAt ? (
+                <span className="text-muted-foreground/60">
+                  · {new Date(dataUpdatedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>

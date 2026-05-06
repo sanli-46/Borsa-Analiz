@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { formatCurrency, formatPercent, formatNumber } from "@/lib/format";
-import { TrendingUp, TrendingDown, Activity, Globe, Flag } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, Globe, Flag, RefreshCw } from "lucide-react";
 import { Layout } from "@/components/layout";
 
 type WatchlistItem = {
@@ -15,6 +15,8 @@ type WatchlistItem = {
   currency?: string;
 };
 
+const REFRESH_INTERVAL = 30000; // 30 saniye
+
 function useMarketWatchlist(market: string) {
   return useQuery<WatchlistItem[]>({
     queryKey: ["watchlist", market],
@@ -23,17 +25,35 @@ function useMarketWatchlist(market: string) {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    staleTime: 60000,
+    staleTime: REFRESH_INTERVAL,
+    refetchInterval: REFRESH_INTERVAL,
+    refetchIntervalInBackground: false,
   });
 }
 
 type MarketTab = "all" | "us" | "bist";
 
+function useCountdown(intervalMs: number) {
+  const [remaining, setRemaining] = useState(intervalMs / 1000);
+  useEffect(() => {
+    setRemaining(intervalMs / 1000);
+    const tick = setInterval(() => {
+      setRemaining(prev => {
+        if (prev <= 1) return intervalMs / 1000;
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [intervalMs]);
+  return remaining;
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<MarketTab>("all");
   const [, setLocation] = useLocation();
 
-  const { data: watchlist, isLoading, error } = useMarketWatchlist(activeTab);
+  const { data: watchlist, isLoading, isFetching, error, dataUpdatedAt } = useMarketWatchlist(activeTab);
+  const countdown = useCountdown(REFRESH_INTERVAL);
 
   const tabs: { id: MarketTab; label: string; icon: React.ReactNode; desc: string }[] = [
     { id: "all", label: "Öne Çıkanlar", icon: <Activity className="w-4 h-4" />, desc: "Her iki piyasadan öne çıkan hisseler" },
@@ -106,11 +126,34 @@ export default function Home() {
             ))}
           </div>
 
-          <div className="text-xs text-muted-foreground mb-3">
-            {tabs.find((t) => t.id === activeTab)?.desc}
-            {watchlist && !isLoading && (
-              <span className="ml-2 text-primary font-medium">{watchlist.length} hisse</span>
-            )}
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              {tabs.find((t) => t.id === activeTab)?.desc}
+              {watchlist && !isLoading && (
+                <span className="text-primary font-medium">{watchlist.length} hisse</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {isFetching && !isLoading ? (
+                <span className="flex items-center gap-1 text-primary">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Güncelleniyor...
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400"></span>
+                  </span>
+                  Canlı · {countdown}s
+                </span>
+              )}
+              {dataUpdatedAt ? (
+                <span className="hidden sm:inline">
+                  Son: {new Date(dataUpdatedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                </span>
+              ) : null}
+            </div>
           </div>
 
           <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
