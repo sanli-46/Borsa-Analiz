@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   SystemState, INITIAL_STATE, SystemMode, ThreatType,
-  Target, createLog, LogEntry,
+  Target, createLog, LogEntry, SystemStatus,
 } from "@/lib/system-state";
+import {
+  serverTargetToUI,
+  type ServerMessage,
+} from "@/lib/protocol";
+import { useHardwareConnection } from "@/hooks/use-connection";
 import { Header } from "@/components/header";
 import { ModeSelector } from "@/components/mode-selector";
 import { CameraView } from "@/components/camera-view";
@@ -41,8 +46,85 @@ export default function ControlPanel() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Telemetry simulation
+  // ─────────────────────────────────────────────────────────────────
+  // Donanım köprüsü — bağlıysa state'i sunucudan, değilse simülasyondan
+  // ─────────────────────────────────────────────────────────────────
+  const handleServerMessage = useCallback((m: ServerMessage) => {
+    setState(prev => {
+      switch (m.type) {
+        case "telemetry": {
+          const statusMap: Record<string, SystemStatus> = {
+            HAZIR: "HAZIR", TARAMA: "TARAMA", KILITLEME: "KILITLEME",
+            ATIS: "ATIS", YENIDEN_YUKLE: "YENİDEN_YUKLE", DURDURULDU: "DURDURULDU",
+          };
+          return {
+            ...prev,
+            mode: m.mode,
+            status: statusMap[m.status] || prev.status,
+            safetyOn: m.safety_on,
+            emergencyStop: m.emergency_stop,
+            ammoCount: m.ammo,
+            maxAmmo: m.max_ammo,
+            shotsFired: m.shots_fired,
+            motors: {
+              pan: m.motors.pan,
+              tilt: m.motors.tilt,
+              magazine: m.motors.magazine,
+              panTarget: m.motors.pan,
+              tiltTarget: m.motors.tilt,
+            },
+            sensors: {
+              lidarDistance: m.sensors.lidar_distance,
+              lidarValid: m.sensors.lidar_valid,
+              ballisticCorrection: m.sensors.lidar_distance * 0.02,
+              fps: Math.round(m.sensors.fps),
+              latencyMs: Math.round(m.sensors.latency_ms),
+            },
+          };
+        }
+        case "targets": {
+          return {
+            ...prev,
+            targets: m.targets.map(serverTargetToUI),
+            lockedTargetId: m.locked_id,
+          };
+        }
+        case "log": {
+          return { ...prev, logs: addLog(prev, m.level, m.message) };
+        }
+        case "ack": {
+          if (!m.ok) {
+            return { ...prev, logs: addLog(prev, "ERROR", `Komut reddedildi: ${m.action} (${m.reason ?? "?"})`) };
+          }
+          return prev;
+        }
+        default: return prev;
+      }
+    });
+  }, []);
+
+  const conn = useHardwareConnection({ onMessage: handleServerMessage });
+  const { isConnected, send } = conn;
+
+  // Bağlandığımızda kullanıcıya bildir
   useEffect(() => {
+    setState(prev => {
+      if (isConnected) {
+        return { ...prev, logs: addLog(prev, "SUCCESS", `Donanım köprüsü aktif: ${conn.url}`) };
+      }
+      if (conn.status === "disconnected" && conn.url) {
+        return { ...prev, logs: addLog(prev, "WARN", "Donanım köprüsü koptu — simülasyon moduna dönüldü") };
+      }
+      return prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected]);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Telemetri simülasyonu (yalnızca bağlı değilken)
+  // ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isConnected) return;
     const interval = setInterval(() => {
       setState(prev => {
         if (prev.emergencyStop) return prev;
@@ -91,22 +173,18 @@ export default function ControlPanel() {
       });
     }, 150);
     return () => clearInterval(interval);
-  }, []);
+  }, [isConnected]);
 
-  // Autonomous mode: auto-detect and fire
+  // Otonom mod (sim): tehdit önceliklerine göre kilit
   useEffect(() => {
-    if (state.mode !== "OTONOM" || state.emergencyStop) return;
-
+    if (isConnected || state.mode !== "OTONOM" || state.emergencyStop) return;
     const interval = setInterval(() => {
       setState(prev => {
         if (prev.mode !== "OTONOM" || prev.emergencyStop) return prev;
-
         const enemies = prev.targets.filter(t => t.type === "DUSMAN");
         if (enemies.length === 0) return prev;
-
         const topEnemy = enemies.sort((a, b) => b.priority - a.priority)[0];
         if (prev.lockedTargetId === topEnemy.id) return prev;
-
         return {
           ...prev,
           lockedTargetId: topEnemy.id,
@@ -116,34 +194,28 @@ export default function ControlPanel() {
       });
     }, 2000);
     return () => clearInterval(interval);
-  }, [state.mode, state.emergencyStop]);
+  }, [isConnected, state.mode, state.emergencyStop]);
 
-  // Auto-fire in autonomous mode
+  // Otonom otomatik ateş (sim)
   useEffect(() => {
-    if (state.mode !== "OTONOM" || state.emergencyStop || state.safetyOn) return;
-
+    if (isConnected || state.mode !== "OTONOM" || state.emergencyStop || state.safetyOn) return;
     const interval = setInterval(() => {
       setState(prev => {
         if (prev.mode !== "OTONOM" || prev.emergencyStop || prev.safetyOn || !prev.lockedTargetId) return prev;
         if (prev.ammoCount === 0) return prev;
-
         const target = prev.targets.find(t => t.id === prev.lockedTargetId);
         if (!target || target.type !== "DUSMAN") return prev;
-
         const newAmmo = prev.ammoCount - 1;
         const newMag = (prev.motors.magazine + 30) % 360;
         const destroyed = Math.random() > 0.35;
-
         let newTargets = prev.targets;
-        let newLockedId = prev.lockedTargetId;
+        let newLockedId: string | null = prev.lockedTargetId;
         let newStatus: SystemState["status"] = "YENİDEN_YUKLE";
-
         if (destroyed) {
           newTargets = prev.targets.filter(t => t.id !== prev.lockedTargetId);
           newLockedId = null;
           newStatus = "TARAMA";
         }
-
         return {
           ...prev,
           ammoCount: newAmmo,
@@ -155,19 +227,17 @@ export default function ControlPanel() {
           logs: addLog(
             prev,
             destroyed ? "SUCCESS" : "WARN",
-            destroyed
-              ? `Otonom: ${target.label} imha edildi`
-              : `Otonom: ${target.label} ateş edildi — isabet yok`
+            destroyed ? `Otonom: ${target.label} imha edildi` : `Otonom: ${target.label} ateş edildi — isabet yok`,
           ),
         };
       });
     }, 4000);
     return () => clearInterval(interval);
-  }, [state.mode, state.emergencyStop, state.safetyOn]);
+  }, [isConnected, state.mode, state.emergencyStop, state.safetyOn]);
 
-  // Swarm mode: spawn multiple targets
+  // Sürü modu (sim)
   useEffect(() => {
-    if (state.mode !== "SURU" || state.emergencyStop) return;
+    if (isConnected || state.mode !== "SURU" || state.emergencyStop) return;
     const interval = setInterval(() => {
       setState(prev => {
         if (prev.mode !== "SURU" || prev.emergencyStop || prev.targets.length >= 6) return prev;
@@ -180,11 +250,11 @@ export default function ControlPanel() {
       });
     }, 3000);
     return () => clearInterval(interval);
-  }, [state.mode, state.emergencyStop]);
+  }, [isConnected, state.mode, state.emergencyStop]);
 
-  // Random target appearance in scanning mode
+  // Rastgele hedef belirme (sim)
   useEffect(() => {
-    if (state.emergencyStop) return;
+    if (isConnected || state.emergencyStop) return;
     const interval = setInterval(() => {
       setState(prev => {
         if (prev.emergencyStop || prev.targets.length >= 4) return prev;
@@ -194,15 +264,16 @@ export default function ControlPanel() {
           ...prev,
           targets: [...prev.targets, newTarget],
           status: "TARAMA",
-          logs: addLog(prev, "WARN", `YOLOv8: Yeni nesne tespit edildi — ${newTarget.label} (%.${newTarget.confidence.toFixed(0)})`),
+          logs: addLog(prev, "WARN", `YOLOv8: Yeni nesne tespit edildi — ${newTarget.label} (%${newTarget.confidence.toFixed(0)})`),
         };
       });
     }, 4000);
     return () => clearInterval(interval);
-  }, [state.emergencyStop]);
+  }, [isConnected, state.emergencyStop]);
 
-  // Random target disappear
+  // Hedef kaybı (sim)
   useEffect(() => {
+    if (isConnected) return;
     const interval = setInterval(() => {
       setState(prev => {
         if (prev.targets.length === 0 || Math.random() > 0.25) return prev;
@@ -219,9 +290,13 @@ export default function ControlPanel() {
       });
     }, 8000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isConnected]);
 
+  // ─────────────────────────────────────────────────────────────────
+  // Aksiyon işleyicileri — bağlıysa komut gönder, değilse local mutate
+  // ─────────────────────────────────────────────────────────────────
   const handleEmergencyStop = useCallback(() => {
+    if (isConnected) { send({ action: "emergency_stop" }); return; }
     setState(prev => ({
       ...prev,
       emergencyStop: true,
@@ -229,18 +304,20 @@ export default function ControlPanel() {
       lockedTargetId: null,
       logs: addLog(prev, "ERROR", "⬛ ACİL STOP AKTIF — Tüm sistemler durduruldu"),
     }));
-  }, []);
+  }, [isConnected, send]);
 
   const handleReset = useCallback(() => {
+    if (isConnected) { send({ action: "reset" }); return; }
     setState(prev => ({
       ...prev,
       emergencyStop: false,
       status: "HAZIR",
       logs: addLog(prev, "SUCCESS", "Sistem sıfırlandı — Hazır"),
     }));
-  }, []);
+  }, [isConnected, send]);
 
   const handleModeChange = useCallback((mode: SystemMode) => {
+    if (isConnected) { send({ action: "set_mode", mode }); return; }
     setState(prev => ({
       ...prev,
       mode,
@@ -248,23 +325,26 @@ export default function ControlPanel() {
       status: "HAZIR",
       logs: addLog(prev, "INFO", `Mod değiştirildi: ${mode}`),
     }));
-  }, []);
+  }, [isConnected, send]);
 
   const handlePanChange = useCallback((val: number) => {
-    setState(prev => ({
-      ...prev,
-      motors: { ...prev.motors, pan: val, panTarget: val },
-    }));
-  }, []);
+    if (isConnected) {
+      send({ action: "set_motors", pan: val, tilt: stateRef.current.motors.tilt });
+      return;
+    }
+    setState(prev => ({ ...prev, motors: { ...prev.motors, pan: val, panTarget: val } }));
+  }, [isConnected, send]);
 
   const handleTiltChange = useCallback((val: number) => {
-    setState(prev => ({
-      ...prev,
-      motors: { ...prev.motors, tilt: val, tiltTarget: val },
-    }));
-  }, []);
+    if (isConnected) {
+      send({ action: "set_motors", pan: stateRef.current.motors.pan, tilt: val });
+      return;
+    }
+    setState(prev => ({ ...prev, motors: { ...prev.motors, tilt: val, tiltTarget: val } }));
+  }, [isConnected, send]);
 
   const handleMagazineStep = useCallback(() => {
+    if (isConnected) { send({ action: "magazine_step", steps: 1 }); return; }
     setState(prev => {
       const newMag = (prev.motors.magazine + 30) % 360;
       return {
@@ -273,17 +353,19 @@ export default function ControlPanel() {
         logs: addLog(prev, "INFO", `Şarjör ilerledi: ${newMag.toFixed(0)}°`),
       };
     });
-  }, []);
+  }, [isConnected, send]);
 
   const handleHomeMotors = useCallback(() => {
+    if (isConnected) { send({ action: "home_motors" }); return; }
     setState(prev => ({
       ...prev,
       motors: { pan: 0, tilt: 0, magazine: 0, panTarget: 0, tiltTarget: 0 },
       logs: addLog(prev, "INFO", "Motorlar sıfır pozisyona döndü"),
     }));
-  }, []);
+  }, [isConnected, send]);
 
   const handleLockTarget = useCallback((id: string | null) => {
+    if (isConnected) { send({ action: "lock_target", target_id: id }); return; }
     setState(prev => {
       const target = id ? prev.targets.find(t => t.id === id) : null;
       const newTargets = prev.targets.map(t => ({ ...t, locked: t.id === id }));
@@ -292,16 +374,14 @@ export default function ControlPanel() {
         lockedTargetId: id,
         targets: newTargets,
         status: id ? "KILITLEME" : "TARAMA",
-        logs: addLog(
-          prev,
-          id ? "WARN" : "INFO",
-          id ? `Hedef kilitlendi: ${target?.label}` : "Kilit kaldırıldı"
-        ),
+        logs: addLog(prev, id ? "WARN" : "INFO",
+          id ? `Hedef kilitlendi: ${target?.label}` : "Kilit kaldırıldı"),
       };
     });
-  }, []);
+  }, [isConnected, send]);
 
   const handleClassifyTarget = useCallback((id: string, type: ThreatType) => {
+    if (isConnected) { send({ action: "classify_target", target_id: id, threat: type }); return; }
     setState(prev => {
       const target = prev.targets.find(t => t.id === id);
       return {
@@ -310,9 +390,10 @@ export default function ControlPanel() {
         logs: addLog(prev, "INFO", `${target?.label} sınıflandırıldı: ${type}`),
       };
     });
-  }, []);
+  }, [isConnected, send]);
 
   const handleFire = useCallback(() => {
+    if (isConnected) { send({ action: "fire" }); return; }
     setState(prev => {
       if (!prev.lockedTargetId || prev.ammoCount === 0) return prev;
       const target = prev.targets.find(t => t.id === prev.lockedTargetId);
@@ -320,7 +401,7 @@ export default function ControlPanel() {
       const newMag = (prev.motors.magazine + 30) % 360;
       const destroyed = Math.random() > 0.4;
       let newTargets = prev.targets;
-      let newLockedId = prev.lockedTargetId;
+      let newLockedId: string | null = prev.lockedTargetId;
       if (destroyed) {
         newTargets = prev.targets.filter(t => t.id !== prev.lockedTargetId);
         newLockedId = null;
@@ -333,25 +414,23 @@ export default function ControlPanel() {
         lockedTargetId: newLockedId,
         status: destroyed ? "TARAMA" : "YENİDEN_YUKLE",
         motors: { ...prev.motors, magazine: newMag },
-        logs: addLog(
-          prev,
-          destroyed ? "SUCCESS" : "WARN",
+        logs: addLog(prev, destroyed ? "SUCCESS" : "WARN",
           destroyed
             ? `✓ ${target?.label} imha edildi! Mesafe: ${target?.distance.toFixed(0)}m`
-            : `✗ ${target?.label} ateş edildi — Iskalama. Mermi: ${newAmmo}`
-        ),
+            : `✗ ${target?.label} ateş edildi — Iskalama. Mermi: ${newAmmo}`),
       };
     });
-  }, []);
+  }, [isConnected, send]);
 
   const handleToggleSafety = useCallback(() => {
+    if (isConnected) { send({ action: "set_safety", safety: !stateRef.current.safetyOn }); return; }
     setState(prev => ({
       ...prev,
       safetyOn: !prev.safetyOn,
       logs: addLog(prev, prev.safetyOn ? "ERROR" : "SUCCESS",
         prev.safetyOn ? "⚠ Güvenlik kilidi AÇILDI" : "✓ Güvenlik kilidi aktif"),
     }));
-  }, []);
+  }, [isConnected, send]);
 
   const handleTargetClick = useCallback((target: Target) => {
     handleLockTarget(target.id);
@@ -359,7 +438,15 @@ export default function ControlPanel() {
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden" style={{ background: "#030a03", fontFamily: "monospace" }}>
-      <Header state={state} onEmergencyStop={handleEmergencyStop} />
+      <Header
+        state={state}
+        onEmergencyStop={handleEmergencyStop}
+        connStatus={conn.status}
+        connUrl={conn.url}
+        connInfo={conn.info}
+        onConnect={conn.connect}
+        onDisconnect={conn.disconnect}
+      />
 
       <div className="flex flex-1 overflow-hidden gap-0">
         {/* LEFT COLUMN */}
@@ -373,7 +460,6 @@ export default function ControlPanel() {
 
         {/* CENTER COLUMN */}
         <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Camera row */}
           <div className="flex flex-1 overflow-hidden">
             <div className="flex-1 border-r border-border">
               <CameraView
@@ -393,7 +479,6 @@ export default function ControlPanel() {
             </div>
           </div>
 
-          {/* Bottom: log + status bar */}
           <div style={{ borderTop: "1px solid #1a3a1a", height: "140px", minHeight: "140px" }}>
             <SystemLog logs={state.logs} />
           </div>

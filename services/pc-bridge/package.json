@@ -1,0 +1,15 @@
+{
+  "name": "@ahs/pc-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ana Görev Bilgisayarı (PC) için WebSocket ↔ ZeroMQ köprüsü. Tarayıcı UI'sini RPi servisine bağlar.",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "zeromq": "^6.1.2"
+  }
+}

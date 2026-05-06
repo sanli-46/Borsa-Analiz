@@ -1,8 +1,15 @@
 import { SystemState } from "@/lib/system-state";
+import { ConnectionSettings } from "./connection-settings";
+import type { ConnStatus } from "@/lib/connection";
 
 interface HeaderProps {
   state: SystemState;
   onEmergencyStop: () => void;
+  connStatus: ConnStatus;
+  connUrl: string;
+  connInfo: string;
+  onConnect: (url: string) => void;
+  onDisconnect: () => void;
 }
 
 const statusColor: Record<string, string> = {
@@ -20,7 +27,7 @@ const modeColor: Record<string, string> = {
   SURU: "#00aaff",
 };
 
-export function Header({ state, onEmergencyStop }: HeaderProps) {
+export function Header({ state, onEmergencyStop, connStatus, connUrl, connInfo, onConnect, onDisconnect }: HeaderProps) {
   const now = new Date();
   const timeStr = now.toTimeString().slice(0, 8);
   const dateStr = now.toLocaleDateString("tr-TR");
@@ -65,6 +72,13 @@ export function Header({ state, onEmergencyStop }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-4">
+        <ConnectionSettings
+          status={connStatus}
+          url={connUrl}
+          info={connInfo}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+        />
         <div className="text-right text-xs text-muted-foreground">
           <div>{dateStr}</div>
           <div className="text-green-bright font-bold">{timeStr}</div>

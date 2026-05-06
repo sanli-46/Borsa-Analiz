@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pyserial>=3.5
+pyzmq>=25.1
+numpy>=1.26
+pydantic>=2.7
+# İsteğe bağlı (donanım var ise yüklü olur, yoksa stub mod aktif olur):
+# ultralytics>=8.0          # YOLOv8
+# opencv-python>=4.8
+# smbus2>=0.4              # LiDAR Lite-v3 I2C
