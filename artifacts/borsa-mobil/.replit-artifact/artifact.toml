@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/borsa-mobil/"
+title = "Borsa Analiz Mobil"
+version = "1.0.0"
+id = "artifacts/borsa-mobil"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/borsa-mobil/" ]
+localPort = 19283
+
+[services.development]
+run = "pnpm --filter @workspace/borsa-mobil run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/borsa-mobil", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/borsa-mobil", "run", "serve" ]
+
+[services.env]
+PORT = "19283"
+BASE_PATH = "/borsa-mobil/"

@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "aeF53M7ujtzez-8yC8our"
+uri = "file://artifacts/borsa-mobil/assets/images/icon.png"
+type = "image"
+title = "borsa app icon"

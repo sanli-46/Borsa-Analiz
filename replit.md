@@ -1,13 +1,14 @@
 # Replit Monorepo — Borsa Analiz + AHS-MK1 Savunma Sistemi
 
 İki bağımsız ürün barındıran pnpm monorepo'su:
-- **Borsa Analiz** — ABD ve BIST hisseleri için teknik/temel analiz uygulaması
+- **Borsa Analiz** — ABD ve BIST hisseleri için teknik/temel analiz uygulaması (web + Expo mobil)
 - **AHS-MK1** — Otonom hava savunma kulesi kontrol paneli + saha donanım katmanı (ESP32, RPi5, ZMQ köprü)
 
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — Borsa API (port 8080)
-- `pnpm --filter @workspace/borsa run dev` — Borsa frontend
+- `pnpm --filter @workspace/borsa run dev` — Borsa web frontend
+- `pnpm --filter @workspace/borsa-mobil run dev` — Borsa Expo mobil uygulaması
 - `pnpm --filter @workspace/savunma-kontrol run dev` — AHS-MK1 kontrol paneli
 - `pnpm run typecheck` — tüm paketleri typecheck et
 - `pnpm --filter @workspace/api-spec run codegen` — OpenAPI → hook + Zod
@@ -29,10 +30,14 @@
 
 ### Borsa Analiz
 - `artifacts/api-server/src/routes/stock.ts` — tüm hisse API endpointleri
-- `artifacts/borsa/src/pages/home.tsx` — ana sayfa, piyasa sekmeleri
-- `artifacts/borsa/src/pages/stock.tsx` — hisse detay
+- `artifacts/borsa/src/pages/home.tsx` — web ana sayfa, piyasa sekmeleri
+- `artifacts/borsa/src/pages/stock.tsx` — web hisse detay
 - `artifacts/borsa/src/components/analysis-panel.tsx` — teknik analiz paneli
 - `lib/api-spec/openapi.yaml` — OpenAPI spec
+- `artifacts/borsa-mobil/app/(tabs)/index.tsx` — mobil piyasalar (watchlist)
+- `artifacts/borsa-mobil/app/(tabs)/search.tsx` — mobil hisse arama
+- `artifacts/borsa-mobil/app/stock/[symbol].tsx` — mobil hisse detay (Genel/Grafik/Analiz/Finansal/Haber)
+- `artifacts/borsa-mobil/components/AnalysisSection.tsx` — mobil teknik analiz paneli (web ile birebir kapsamda)
 
 ### AHS-MK1 (Savunma Sistemi)
 - `artifacts/savunma-kontrol/src/pages/control-panel.tsx` — ana kontrol arayüzü, sim ↔ canlı geçişi
