@@ -11,11 +11,12 @@ import {
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import React, { useLayoutEffect, useMemo, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,7 +27,8 @@ import Svg, { Line, Path, Polyline } from "react-native-svg";
 
 import { AnalysisSection } from "@/components/AnalysisSection";
 import { useColors } from "@/hooks/useColors";
-import { formatCurrency, formatDate, formatNumber, formatPercent } from "@/lib/format";
+import { formatCurrency, formatDate, formatNumber, formatPercent, formatTime } from "@/lib/format";
+import { useQueryClient } from "@tanstack/react-query";
 
 type Section = "overview" | "chart" | "analysis" | "financials" | "news";
 
@@ -52,9 +54,35 @@ export default function StockDetail() {
       : "overview",
   );
 
-  const { data: quote, isLoading: quoteLoading } = useGetStockQuote(symbol, {
-    query: { refetchInterval: 20_000, staleTime: 20_000, enabled: !!symbol } as never,
+  const { data: quote, isLoading: quoteLoading, dataUpdatedAt } = useGetStockQuote(symbol, {
+    query: {
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
+      staleTime: 10_000,
+      refetchOnWindowFocus: true,
+      refetchOnMount: "always",
+      enabled: !!symbol,
+    } as never,
   });
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await queryClient.invalidateQueries({
+        predicate: (q) => {
+          const key = q.queryKey;
+          if (!Array.isArray(key) || key.length === 0) return false;
+          const head = key[0];
+          if (typeof head === "string" && head.includes("/stock/")) return true;
+          if (head === "analysis" && key[1] === symbol) return true;
+          return false;
+        },
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient]);
   const { data: summary } = useGetStockSummary(symbol, {
     query: { staleTime: 5 * 60_000, enabled: !!symbol } as never,
   });
@@ -78,6 +106,15 @@ export default function StockDetail() {
     <ScrollView
       style={{ backgroundColor: colors.background }}
       contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+          progressBackgroundColor={colors.card}
+        />
+      }
     >
       {/* Price hero */}
       <View style={[styles.hero, { borderBottomColor: colors.border }]}>
@@ -116,6 +153,12 @@ export default function StockDetail() {
           </Text>
           <Text style={[styles.heroChange, { color: changeColor }]}>
             ({formatPercent(quote.regularMarketChangePercent)})
+          </Text>
+        </View>
+        <View style={styles.heroLiveRow}>
+          <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
+          <Text style={[styles.liveText, { color: colors.mutedForeground }]}>
+            Anlık · {formatTime(dataUpdatedAt || Date.now())}
           </Text>
         </View>
       </View>
@@ -685,6 +728,9 @@ const styles = StyleSheet.create({
   heroPrice: { fontFamily: "Inter_700Bold", fontSize: 36, marginTop: 12 },
   heroChangeRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   heroChange: { fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  heroLiveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10 },
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveText: { fontFamily: "Inter_500Medium", fontSize: 11 },
   sections: {
     flexDirection: "row",
     paddingHorizontal: 8,

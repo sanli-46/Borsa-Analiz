@@ -15,6 +15,7 @@ import {
 import Svg, { Line, Path, Polyline, Rect } from "react-native-svg";
 
 import { useColors } from "@/hooks/useColors";
+import { apiUrl } from "@/lib/api-base";
 import { formatCurrency, formatPercent, formatTime } from "@/lib/format";
 
 type Signal = "buy" | "sell" | "neutral";
@@ -88,15 +89,11 @@ const PERIODS = [
 
 const ANALYSIS_REFRESH = 5 * 60 * 1000;
 
-function fetchAnalysis(symbol: string, period: string): Promise<AnalysisData> {
-  const base = process.env.EXPO_PUBLIC_DOMAIN
-    ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-    : "";
-  const url = `${base}/api/stock/analysis/${encodeURIComponent(symbol)}?period=${period}`;
-  return fetch(url).then((r) => {
-    if (!r.ok) throw new Error("Analiz verisi alınamadı");
-    return r.json();
-  });
+async function fetchAnalysis(symbol: string, period: string): Promise<AnalysisData> {
+  const url = apiUrl(`/api/stock/analysis/${encodeURIComponent(symbol)}?period=${period}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Analiz verisi alınamadı");
+  return res.json();
 }
 
 export function AnalysisSection({

@@ -17,11 +17,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import colors from "@/constants/colors";
+import { getApiBaseUrl } from "@/lib/api-base";
 
 SplashScreen.preventAutoHideAsync();
 
-if (process.env.EXPO_PUBLIC_DOMAIN) {
-  setBaseUrl(`https://${process.env.EXPO_PUBLIC_DOMAIN}`);
+const API_BASE = getApiBaseUrl();
+if (API_BASE) {
+  setBaseUrl(API_BASE);
 }
 
 const queryClient = new QueryClient({
