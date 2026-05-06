@@ -1,8 +1,6 @@
 import { 
   useGetStockQuote, 
-  useGetStockHistory, 
   useGetStockFinancials,
-  useGetStockIndicators,
   useGetStockNews,
   useGetStockSummary 
 } from "@workspace/api-client-react";
@@ -11,7 +9,7 @@ import { formatCurrency, formatPercent, formatNumber, formatDate } from "@/lib/f
 import { Layout } from "@/components/layout";
 import { StockChart } from "@/components/stock-chart";
 import { FinancialsChart } from "@/components/financials-chart";
-import { IndicatorsChart } from "@/components/technical-chart";
+import { AnalysisPanel } from "@/components/analysis-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TrendingUp, TrendingDown, ExternalLink } from "lucide-react";
 
@@ -22,7 +20,6 @@ export default function Stock() {
   const { data: quote, isLoading: isQuoteLoading } = useGetStockQuote(symbol);
   const { data: summary, isLoading: isSummaryLoading } = useGetStockSummary(symbol);
   const { data: financials } = useGetStockFinancials(symbol);
-  const { data: indicators } = useGetStockIndicators(symbol, { period: "6mo" });
   const { data: news } = useGetStockNews(symbol);
 
   if (isQuoteLoading || isSummaryLoading) {
@@ -164,10 +161,7 @@ export default function Stock() {
           </TabsContent>
 
           <TabsContent value="analysis">
-             <div className="bg-card border border-border p-6 rounded-lg shadow-sm space-y-8">
-                <IndicatorsChart data={indicators?.rsi || []} type="rsi" />
-                <IndicatorsChart data={indicators?.macd || []} type="macd" />
-             </div>
+            <AnalysisPanel symbol={symbol} currency={quote.currency} />
           </TabsContent>
 
           <TabsContent value="news">
