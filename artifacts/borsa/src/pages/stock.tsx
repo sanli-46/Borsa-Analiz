@@ -23,7 +23,7 @@ export default function Stock() {
     symbol,
     { query: { refetchInterval: QUOTE_REFRESH, staleTime: QUOTE_REFRESH } }
   );
-  const { data: summary, isLoading: isSummaryLoading } = useGetStockSummary(symbol);
+  const { data: summary, isLoading: isSummaryLoading } = useGetStockSummary(symbol, { query: { refetchInterval: 5 * 60 * 1000, staleTime: 5 * 60 * 1000 } });
   const { data: financials } = useGetStockFinancials(symbol);
   const { data: news } = useGetStockNews(symbol);
 

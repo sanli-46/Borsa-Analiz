@@ -7,7 +7,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
   TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle2,
-  XCircle, Info, Activity, BarChart2, Target, Layers,
+  XCircle, Info, Activity, BarChart2, Target, Layers, RefreshCw,
 } from "lucide-react";
 
 type AnalysisData = {
@@ -40,6 +40,8 @@ type AnalysisData = {
   }[];
 };
 
+const ANALYSIS_REFRESH = 5 * 60 * 1000; // 5 dakika (ağır hesaplama olduğundan)
+
 function useAnalysis(symbol: string, period = "6mo") {
   return useQuery<AnalysisData>({
     queryKey: ["analysis", symbol, period],
@@ -48,7 +50,10 @@ function useAnalysis(symbol: string, period = "6mo") {
       if (!res.ok) throw new Error("Analiz verisi alınamadı");
       return res.json();
     },
-    staleTime: 120000,
+    staleTime: ANALYSIS_REFRESH,
+    refetchInterval: ANALYSIS_REFRESH,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -74,7 +79,7 @@ export function AnalysisPanel({ symbol, currency }: { symbol: string; currency?:
   const [showEMA, setShowEMA] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
 
-  const { data, isLoading, error } = useAnalysis(symbol, period);
+  const { data, isLoading, isFetching, error, dataUpdatedAt } = useAnalysis(symbol, period);
 
   if (isLoading) {
     return (
@@ -114,6 +119,34 @@ export function AnalysisPanel({ symbol, currency }: { symbol: string; currency?:
 
   return (
     <div className="space-y-6">
+
+      {/* === UPDATE STATUS BAR === */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground bg-muted/20 border border-border rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2">
+          {isFetching && !isLoading ? (
+            <span className="flex items-center gap-1.5 text-primary">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Hesaplamalar güncelleniyor...
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-400" />
+              </span>
+              Tüm göstergeler güncel
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {dataUpdatedAt ? (
+            <span>
+              Son hesaplama: {new Date(dataUpdatedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </span>
+          ) : null}
+          <span className="text-muted-foreground/60">Her 5 dakikada güncellenir</span>
+        </div>
+      </div>
 
       {/* === SIGNAL DASHBOARD === */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
