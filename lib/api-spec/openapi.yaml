@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Borsa Analiz API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: stock
+    description: Stock market data operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,189 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /stock/search:
+    get:
+      operationId: searchStocks
+      tags: [stock]
+      summary: Search stocks
+      description: Search for stocks by name or symbol
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query (company name or ticker symbol)
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StockSearchResult"
+
+  /stock/quote/{symbol}:
+    get:
+      operationId: getStockQuote
+      tags: [stock]
+      summary: Get stock quote
+      description: Get current stock quote and key metrics
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stock quote data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockQuote"
+
+  /stock/history/{symbol}:
+    get:
+      operationId: getStockHistory
+      tags: [stock]
+      summary: Get stock historical data
+      description: Get OHLCV historical price data
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, ytd, max]
+            default: 3mo
+        - name: interval
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo]
+            default: 1d
+      responses:
+        "200":
+          description: Historical OHLCV data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockHistory"
+
+  /stock/financials/{symbol}:
+    get:
+      operationId: getStockFinancials
+      tags: [stock]
+      summary: Get financial statements
+      description: Get income statement, balance sheet, and cash flow data
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Financial statements
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockFinancials"
+
+  /stock/indicators/{symbol}:
+    get:
+      operationId: getStockIndicators
+      tags: [stock]
+      summary: Get technical indicators
+      description: Get RSI, MACD, Bollinger Bands and Moving Averages
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [1mo, 3mo, 6mo, 1y, 2y, 5y]
+            default: 3mo
+      responses:
+        "200":
+          description: Technical indicators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TechnicalIndicators"
+
+  /stock/news/{symbol}:
+    get:
+      operationId: getStockNews
+      tags: [stock]
+      summary: Get stock news
+      description: Get latest news for the stock
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stock news articles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NewsArticle"
+
+  /stock/summary/{symbol}:
+    get:
+      operationId: getStockSummary
+      tags: [stock]
+      summary: Get comprehensive stock summary
+      description: Get a full analysis summary including all key data points
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full stock summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockSummary"
+
+  /stock/watchlist:
+    get:
+      operationId: getWatchlist
+      tags: [stock]
+      summary: Get popular stocks watchlist
+      description: Get a curated list of popular global stocks
+      responses:
+        "200":
+          description: Watchlist with current prices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WatchlistItem"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +219,370 @@ components:
       required:
         - status
 
+    StockSearchResult:
+      type: object
+      properties:
+        symbol:
+          type: string
+        shortname:
+          type: string
+        longname:
+          type: string
+        exchange:
+          type: string
+        quoteType:
+          type: string
+        sector:
+          type: string
+      required:
+        - symbol
+
+    StockQuote:
+      type: object
+      properties:
+        symbol:
+          type: string
+        longName:
+          type: string
+        shortName:
+          type: string
+        regularMarketPrice:
+          type: number
+        regularMarketChange:
+          type: number
+        regularMarketChangePercent:
+          type: number
+        regularMarketOpen:
+          type: number
+        regularMarketDayHigh:
+          type: number
+        regularMarketDayLow:
+          type: number
+        regularMarketVolume:
+          type: number
+        regularMarketPreviousClose:
+          type: number
+        fiftyTwoWeekHigh:
+          type: number
+        fiftyTwoWeekLow:
+          type: number
+        marketCap:
+          type: number
+        trailingPE:
+          type: number
+        forwardPE:
+          type: number
+        priceToBook:
+          type: number
+        trailingEps:
+          type: number
+        dividendYield:
+          type: number
+        beta:
+          type: number
+        averageVolume:
+          type: number
+        currency:
+          type: string
+        exchange:
+          type: string
+        sector:
+          type: string
+        industry:
+          type: string
+        country:
+          type: string
+        website:
+          type: string
+        longBusinessSummary:
+          type: string
+        recommendationMean:
+          type: number
+        recommendationKey:
+          type: string
+        numberOfAnalystOpinions:
+          type: number
+        targetHighPrice:
+          type: number
+        targetLowPrice:
+          type: number
+        targetMeanPrice:
+          type: number
+      required:
+        - symbol
+        - regularMarketPrice
+
+    OhlcvCandle:
+      type: object
+      properties:
+        date:
+          type: string
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: number
+      required:
+        - date
+        - open
+        - high
+        - low
+        - close
+        - volume
+
+    StockHistory:
+      type: object
+      properties:
+        symbol:
+          type: string
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/OhlcvCandle"
+        currency:
+          type: string
+      required:
+        - symbol
+        - candles
+
+    IncomeStatement:
+      type: object
+      properties:
+        date:
+          type: string
+        totalRevenue:
+          type: number
+        grossProfit:
+          type: number
+        operatingIncome:
+          type: number
+        netIncome:
+          type: number
+        ebitda:
+          type: number
+      required:
+        - date
+
+    BalanceSheet:
+      type: object
+      properties:
+        date:
+          type: string
+        totalAssets:
+          type: number
+        totalLiab:
+          type: number
+        totalStockholderEquity:
+          type: number
+        cash:
+          type: number
+        totalDebt:
+          type: number
+      required:
+        - date
+
+    CashFlow:
+      type: object
+      properties:
+        date:
+          type: string
+        operatingCashflow:
+          type: number
+        capitalExpenditures:
+          type: number
+        freeCashflow:
+          type: number
+        netIncome:
+          type: number
+      required:
+        - date
+
+    StockFinancials:
+      type: object
+      properties:
+        symbol:
+          type: string
+        incomeStatements:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncomeStatement"
+        balanceSheets:
+          type: array
+          items:
+            $ref: "#/components/schemas/BalanceSheet"
+        cashFlows:
+          type: array
+          items:
+            $ref: "#/components/schemas/CashFlow"
+      required:
+        - symbol
+        - incomeStatements
+        - balanceSheets
+        - cashFlows
+
+    IndicatorPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        value:
+          type: number
+      required:
+        - date
+
+    MacdPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        macd:
+          type: number
+        signal:
+          type: number
+        histogram:
+          type: number
+      required:
+        - date
+
+    BollingerPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        upper:
+          type: number
+        middle:
+          type: number
+        lower:
+          type: number
+        price:
+          type: number
+      required:
+        - date
+
+    TechnicalIndicators:
+      type: object
+      properties:
+        symbol:
+          type: string
+        rsi:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+        macd:
+          type: array
+          items:
+            $ref: "#/components/schemas/MacdPoint"
+        bollingerBands:
+          type: array
+          items:
+            $ref: "#/components/schemas/BollingerPoint"
+        sma20:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+        sma50:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+        sma200:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+        ema12:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+        ema26:
+          type: array
+          items:
+            $ref: "#/components/schemas/IndicatorPoint"
+      required:
+        - symbol
+        - rsi
+        - macd
+        - bollingerBands
+        - sma20
+        - sma50
+
+    NewsArticle:
+      type: object
+      properties:
+        title:
+          type: string
+        publisher:
+          type: string
+        link:
+          type: string
+        providerPublishTime:
+          type: number
+        type:
+          type: string
+        thumbnail:
+          type: string
+        relatedTickers:
+          type: array
+          items:
+            type: string
+      required:
+        - title
+        - link
+
+    StockSummary:
+      type: object
+      properties:
+        symbol:
+          type: string
+        quote:
+          $ref: "#/components/schemas/StockQuote"
+        weeklyChange:
+          type: number
+        monthlyChange:
+          type: number
+        yearlyChange:
+          type: number
+        volatility:
+          type: number
+        avgVolume30d:
+          type: number
+        priceVsSma50:
+          type: number
+        priceVsSma200:
+          type: number
+        currentRsi:
+          type: number
+        analystRating:
+          type: string
+        overallSignal:
+          type: string
+      required:
+        - symbol
+        - quote
+
+    WatchlistItem:
+      type: object
+      properties:
+        symbol:
+          type: string
+        shortName:
+          type: string
+        price:
+          type: number
+        change:
+          type: number
+        changePercent:
+          type: number
+        marketCap:
+          type: number
+        currency:
+          type: string
+      required:
+        - symbol
+        - price
+        - change
+        - changePercent
