@@ -602,6 +602,19 @@ router.get("/stock/search", async (req, res): Promise<void> => {
   }
 });
 
+function sanitizeUrl(url: unknown): string | undefined {
+  if (typeof url !== "string") return undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return url;
+    }
+  } catch {
+    // not a valid URL
+  }
+  return undefined;
+}
+
 // GET /stock/quote/:symbol
 router.get("/stock/quote/:symbol", async (req, res): Promise<void> => {
   const params = GetStockQuoteParams.safeParse(req.params);
@@ -663,7 +676,7 @@ router.get("/stock/quote/:symbol", async (req, res): Promise<void> => {
       sector: profile.sector as string,
       industry: profile.industry as string,
       country: profile.country as string,
-      website: profile.website as string,
+      website: sanitizeUrl(profile.website),
       longBusinessSummary: profile.longBusinessSummary as string,
       recommendationMean: formatNumber(financial.recommendationMean),
       recommendationKey: financial.recommendationKey as string,
@@ -979,20 +992,22 @@ router.get("/stock/news/:symbol", async (req, res): Promise<void> => {
       quotesCount: 0,
     });
 
-    const news = (result.news || []).map((n: Record<string, unknown>) => ({
-      title: n.title,
-      publisher: n.publisher,
-      link: n.link,
-      providerPublishTime:
-        n.providerPublishTime instanceof Date
-          ? n.providerPublishTime.getTime() / 1000
-          : Number(n.providerPublishTime),
-      type: n.type,
-      thumbnail:
-        (n.thumbnail as { resolutions?: { url?: string }[] })?.resolutions?.[0]
-          ?.url,
-      relatedTickers: n.relatedTickers || [],
-    }));
+    const news = (result.news || [])
+      .map((n: Record<string, unknown>) => ({
+        title: n.title,
+        publisher: n.publisher,
+        link: sanitizeUrl(n.link),
+        providerPublishTime:
+          n.providerPublishTime instanceof Date
+            ? n.providerPublishTime.getTime() / 1000
+            : Number(n.providerPublishTime),
+        type: n.type,
+        thumbnail:
+          (n.thumbnail as { resolutions?: { url?: string }[] })?.resolutions?.[0]
+            ?.url,
+        relatedTickers: n.relatedTickers || [],
+      }))
+      .filter((n): n is typeof n & { link: string } => typeof n.link === "string");
 
     res.json(news);
   } catch (err) {

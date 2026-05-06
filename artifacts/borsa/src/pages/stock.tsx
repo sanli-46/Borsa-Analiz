@@ -15,6 +15,17 @@ import { TrendingUp, TrendingDown, ExternalLink, RefreshCw } from "lucide-react"
 
 const QUOTE_REFRESH = 20000; // 20 saniye
 
+function safeHref(url: string | undefined | null): string | undefined {
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return url;
+  } catch {
+    // not a valid URL
+  }
+  return undefined;
+}
+
 export default function Stock() {
   const params = useParams<{ symbol: string }>();
   const symbol = params.symbol?.toUpperCase() || "";
@@ -118,8 +129,8 @@ export default function Stock() {
                   <p className="text-sm text-muted-foreground leading-relaxed">
                     {quote.longBusinessSummary || "Açıklama bulunamadı."}
                   </p>
-                  {quote.website && (
-                    <a href={quote.website} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm text-primary hover:underline mt-4">
+                  {safeHref(quote.website) && (
+                    <a href={safeHref(quote.website)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-sm text-primary hover:underline mt-4">
                       Web sitesine git <ExternalLink className="w-3 h-3 ml-1" />
                     </a>
                   )}
@@ -185,31 +196,36 @@ export default function Stock() {
           </TabsContent>
 
           <TabsContent value="news">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {news?.map((item, i) => (
-                <a key={i} href={item.link} target="_blank" rel="noopener noreferrer" className="block bg-card border border-border p-4 rounded-lg shadow-sm hover:border-primary transition-colors group">
-                  <div className="flex gap-4">
-                    {item.thumbnail && (
-                      <img src={item.thumbnail} alt="" className="w-24 h-24 object-cover rounded bg-muted shrink-0" />
-                    )}
-                    <div className="flex-1 flex flex-col justify-between">
-                      <h3 className="font-medium text-sm group-hover:text-primary transition-colors line-clamp-3">
-                        {item.title}
-                      </h3>
-                      <div className="text-xs text-muted-foreground mt-2 flex justify-between items-center">
-                        <span>{item.publisher}</span>
-                        <span>{item.providerPublishTime ? formatDate(new Date(item.providerPublishTime * 1000).toISOString()) : ""}</span>
+            {(() => {
+              const safeNews = news?.filter(item => !!safeHref(item.link)) ?? [];
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {safeNews.map((item, i) => (
+                    <a key={i} href={safeHref(item.link)} target="_blank" rel="noopener noreferrer" className="block bg-card border border-border p-4 rounded-lg shadow-sm hover:border-primary transition-colors group">
+                      <div className="flex gap-4">
+                        {item.thumbnail && (
+                          <img src={item.thumbnail} alt="" className="w-24 h-24 object-cover rounded bg-muted shrink-0" />
+                        )}
+                        <div className="flex-1 flex flex-col justify-between">
+                          <h3 className="font-medium text-sm group-hover:text-primary transition-colors line-clamp-3">
+                            {item.title}
+                          </h3>
+                          <div className="text-xs text-muted-foreground mt-2 flex justify-between items-center">
+                            <span>{item.publisher}</span>
+                            <span>{item.providerPublishTime ? formatDate(new Date(item.providerPublishTime * 1000).toISOString()) : ""}</span>
+                          </div>
+                        </div>
                       </div>
+                    </a>
+                  ))}
+                  {safeNews.length === 0 && (
+                    <div className="col-span-full p-8 text-center text-muted-foreground bg-card border border-border rounded-lg shadow-sm">
+                      Haber bulunamadı.
                     </div>
-                  </div>
-                </a>
-              ))}
-              {(!news || news.length === 0) && (
-                <div className="col-span-full p-8 text-center text-muted-foreground bg-card border border-border rounded-lg shadow-sm">
-                  Haber bulunamadı.
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </TabsContent>
         </Tabs>
       </div>

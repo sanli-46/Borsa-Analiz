@@ -70,7 +70,7 @@ export const GetStockQuoteResponse = zod.object({
   sector: zod.string().optional(),
   industry: zod.string().optional(),
   country: zod.string().optional(),
-  website: zod.string().optional(),
+  website: zod.string().url().refine(val => /^https?:\/\//i.test(val), { message: "Only http/https URLs are allowed" }).optional(),
   longBusinessSummary: zod.string().optional(),
   recommendationMean: zod.number().optional(),
   recommendationKey: zod.string().optional(),
@@ -272,7 +272,7 @@ export const GetStockNewsParams = zod.object({
 export const GetStockNewsResponseItem = zod.object({
   title: zod.string(),
   publisher: zod.string().optional(),
-  link: zod.string(),
+  link: zod.string().refine(val => /^https?:\/\//i.test(val), { message: "Only http/https URLs are allowed" }),
   providerPublishTime: zod.number().optional(),
   type: zod.string().optional(),
   thumbnail: zod.string().optional(),
