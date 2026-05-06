@@ -17,7 +17,7 @@ Bu tür platformlar genellikle yatırım kararlarını desteklemek için teknik 
 
 ## 🛠️ Kullanılan Teknolojiler
 
-- Python / .NET / JavaScript (proje yapına göre düzenle)
+- Python / .NET / JavaScript 
 - Veri çekme API’leri
 - Grafik kütüphaneleri
 - Teknik analiz algoritmaları
