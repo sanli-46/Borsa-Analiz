@@ -15,29 +15,85 @@ import {
 import Svg, { Line, Path, Polyline, Rect } from "react-native-svg";
 
 import { useColors } from "@/hooks/useColors";
+import { apiUrl } from "@/lib/api-base";
 import { formatCurrency, formatPercent, formatTime } from "@/lib/format";
-import {
-  analyze,
-  type AnalysisData,
-  type ChartRow,
-  type IndicatorSignal,
-  type Pattern,
-} from "@/lib/indicators";
-import { getHistory, type Range } from "@/lib/yahoo";
 
-const PERIODS: { id: Range; label: string }[] = [
+type Signal = "buy" | "sell" | "neutral";
+type IndicatorSignal = { name: string; value: string; signal: Signal; detail: string };
+type Pattern = {
+  name: string;
+  nameTr: string;
+  type: "bullish" | "bearish" | "neutral";
+  confidence: number;
+  description: string;
+  startDate: string;
+  endDate: string;
+};
+type ChartRow = {
+  date: string;
+  close: number;
+  sma20: number | null;
+  sma50: number | null;
+  sma200: number | null;
+  ema20: number | null;
+  ema50: number | null;
+  bb_upper: number | null;
+  bb_lower: number | null;
+  rsi: number | null;
+  stoch_k: number | null;
+  stoch_d: number | null;
+  macd: number | null;
+  macd_signal: number | null;
+  macd_hist: number | null;
+};
+
+type AnalysisData = {
+  symbol: string;
+  currentPrice: number;
+  trend: "uptrend" | "downtrend" | "sideways";
+  overallSignal: string;
+  buyCount: number;
+  sellCount: number;
+  neutralCount: number;
+  currentRsi: number | null;
+  currentAtr: number | null;
+  atrPercent: number | null;
+  signals: IndicatorSignal[];
+  patterns: Pattern[];
+  support: number[];
+  resistance: number[];
+  fibonacci: {
+    trend: string;
+    high: number;
+    low: number;
+    levels: { ratio: number; label: string; price: number }[];
+  };
+  pivotPoints: {
+    pivot: number;
+    r1: number;
+    r2: number;
+    r3: number;
+    s1: number;
+    s2: number;
+    s3: number;
+  };
+  chartData: ChartRow[];
+};
+
+const PERIODS = [
   { id: "3mo", label: "3A" },
   { id: "6mo", label: "6A" },
   { id: "1y", label: "1Y" },
   { id: "2y", label: "2Y" },
-];
+] as const;
 
 const ANALYSIS_REFRESH = 5 * 60 * 1000;
 
-async function fetchAnalysis(symbol: string, period: Range): Promise<AnalysisData> {
-  const { candles } = await getHistory(symbol, period, "1d");
-  if (!candles.length) throw new Error("Geçmiş veri bulunamadı");
-  return analyze(symbol, candles);
+async function fetchAnalysis(symbol: string, period: string): Promise<AnalysisData> {
+  const url = apiUrl(`/api/stock/analysis/${encodeURIComponent(symbol)}?period=${period}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Analiz verisi alınamadı");
+  return res.json();
 }
 
 export function AnalysisSection({

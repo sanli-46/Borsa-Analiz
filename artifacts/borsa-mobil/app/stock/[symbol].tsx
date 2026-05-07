@@ -1,5 +1,13 @@
 import { Feather } from "@expo/vector-icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useGetStockFinancials,
+  useGetStockHistory,
+  useGetStockNews,
+  useGetStockQuote,
+  useGetStockSummary,
+  type StockQuote,
+  type StockSummary,
+} from "@workspace/api-client-react";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -20,23 +28,15 @@ import Svg, { Line, Path, Polyline } from "react-native-svg";
 import { AnalysisSection } from "@/components/AnalysisSection";
 import { useColors } from "@/hooks/useColors";
 import { formatCurrency, formatDate, formatNumber, formatPercent, formatTime } from "@/lib/format";
-import { summarize, type Summary } from "@/lib/indicators";
-import {
-  getHistory,
-  getNews,
-  getQuote,
-  type Candle,
-  type NewsItem,
-  type Range,
-  type StockQuote,
-} from "@/lib/yahoo";
+import { useQueryClient } from "@tanstack/react-query";
 
-type Section = "overview" | "chart" | "analysis" | "news";
+type Section = "overview" | "chart" | "analysis" | "financials" | "news";
 
 const SECTIONS: { id: Section; label: string; icon: keyof typeof Feather.glyphMap }[] = [
   { id: "overview", label: "Genel", icon: "info" },
   { id: "chart", label: "Grafik", icon: "bar-chart-2" },
   { id: "analysis", label: "Analiz", icon: "activity" },
+  { id: "financials", label: "Finansal", icon: "dollar-sign" },
   { id: "news", label: "Haber", icon: "file-text" },
 ];
 
@@ -54,29 +54,16 @@ export default function StockDetail() {
       : "overview",
   );
 
-  const { data: quote, isLoading: quoteLoading, dataUpdatedAt } = useQuery<StockQuote>({
-    queryKey: ["yahoo/quote", symbol],
-    queryFn: () => getQuote(symbol),
-    enabled: !!symbol,
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: false,
-    staleTime: 15_000,
-    refetchOnWindowFocus: true,
+  const { data: quote, isLoading: quoteLoading, dataUpdatedAt } = useGetStockQuote(symbol, {
+    query: {
+      refetchInterval: 15_000,
+      refetchIntervalInBackground: false,
+      staleTime: 10_000,
+      refetchOnWindowFocus: true,
+      refetchOnMount: "always",
+      enabled: !!symbol,
+    } as never,
   });
-
-  // Özet için 1 yıllık günlük veri yeterli (RSI, SMA200 dahil çoğu indikatör)
-  const { data: summaryHistory } = useQuery<{ candles: Candle[] }>({
-    queryKey: ["yahoo/history-summary", symbol, "1y", "1d"],
-    queryFn: () => getHistory(symbol, "1y", "1d"),
-    enabled: !!symbol,
-    staleTime: 5 * 60_000,
-  });
-
-  const summary: Summary | undefined = useMemo(() => {
-    if (!summaryHistory?.candles?.length) return undefined;
-    return summarize(summaryHistory.candles);
-  }, [summaryHistory]);
-
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -87,9 +74,7 @@ export default function StockDetail() {
           const key = q.queryKey;
           if (!Array.isArray(key) || key.length === 0) return false;
           const head = key[0];
-          if (typeof head === "string" && head.startsWith("yahoo/")) {
-            return key[1] === symbol;
-          }
+          if (typeof head === "string" && head.includes("/stock/")) return true;
           if (head === "analysis" && key[1] === symbol) return true;
           return false;
         },
@@ -97,7 +82,10 @@ export default function StockDetail() {
     } finally {
       setRefreshing(false);
     }
-  }, [queryClient, symbol]);
+  }, [queryClient]);
+  const { data: summary } = useGetStockSummary(symbol, {
+    query: { staleTime: 5 * 60_000, enabled: !!symbol } as never,
+  });
 
   useLayoutEffect(() => {
     navigation.setOptions({ title: symbol });
@@ -131,14 +119,11 @@ export default function StockDetail() {
       {/* Price hero */}
       <View style={[styles.hero, { borderBottomColor: colors.border }]}>
         <View style={styles.heroTop}>
-          <Text style={[styles.heroSymbol, { color: colors.foreground }]}>{quote.symbol}</Text>
+          <Text style={[styles.heroSymbol, { color: colors.foreground }]}>
+            {quote.symbol}
+          </Text>
           {quote.exchange && (
-            <View
-              style={[
-                styles.exchangeBadge,
-                { borderColor: colors.border, backgroundColor: colors.card },
-              ]}
-            >
+            <View style={[styles.exchangeBadge, { borderColor: colors.border, backgroundColor: colors.card }]}>
               <Text style={[styles.exchangeText, { color: colors.mutedForeground }]}>
                 {quote.exchange}
               </Text>
@@ -146,7 +131,10 @@ export default function StockDetail() {
           )}
         </View>
         {quote.longName && (
-          <Text style={[styles.heroName, { color: colors.mutedForeground }]} numberOfLines={1}>
+          <Text
+            style={[styles.heroName, { color: colors.mutedForeground }]}
+            numberOfLines={1}
+          >
             {quote.longName}
           </Text>
         )}
@@ -170,7 +158,7 @@ export default function StockDetail() {
         <View style={styles.heroLiveRow}>
           <View style={[styles.liveDot, { backgroundColor: colors.primary }]} />
           <Text style={[styles.liveText, { color: colors.mutedForeground }]}>
-            Yahoo Finance · {formatTime(dataUpdatedAt || Date.now())}
+            Anlık · {formatTime(dataUpdatedAt || Date.now())}
           </Text>
         </View>
       </View>
@@ -215,6 +203,7 @@ export default function StockDetail() {
       {section === "overview" && <OverviewSection quote={quote} summary={summary} />}
       {section === "chart" && <ChartSection symbol={symbol} currency={quote.currency} />}
       {section === "analysis" && <AnalysisSection symbol={symbol} currency={quote.currency} />}
+      {section === "financials" && <FinancialsSection symbol={symbol} />}
       {section === "news" && <NewsSection symbol={symbol} />}
     </ScrollView>
   );
@@ -234,7 +223,9 @@ function Card({ children, title }: { children: React.ReactNode; title?: string }
   const colors = useColors();
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      {title && <Text style={[styles.cardTitle, { color: colors.foreground }]}>{title}</Text>}
+      {title && (
+        <Text style={[styles.cardTitle, { color: colors.foreground }]}>{title}</Text>
+      )}
       {children}
     </View>
   );
@@ -245,7 +236,7 @@ function OverviewSection({
   summary,
 }: {
   quote: StockQuote;
-  summary: Summary | undefined;
+  summary: StockSummary | undefined;
 }) {
   const colors = useColors();
   const cur = quote.currency;
@@ -264,16 +255,18 @@ function OverviewSection({
             <View
               style={[
                 styles.signalBadge,
-                {
-                  backgroundColor: sigColor(summary.overallSignal) + "22",
-                  borderColor: sigColor(summary.overallSignal),
-                },
+                { backgroundColor: sigColor(summary.overallSignal) + "22", borderColor: sigColor(summary.overallSignal) },
               ]}
             >
               <Text style={[styles.signalText, { color: sigColor(summary.overallSignal) }]}>
                 {summary.overallSignal}
               </Text>
             </View>
+            {summary.analystRating && (
+              <Text style={[styles.subdued, { color: colors.mutedForeground }]}>
+                Analist: {summary.analystRating}
+              </Text>
+            )}
           </View>
         </Card>
       )}
@@ -282,10 +275,7 @@ function OverviewSection({
         <StatRow label="Açılış" value={formatCurrency(quote.regularMarketOpen, cur)} />
         <StatRow label="Gün En Yüksek" value={formatCurrency(quote.regularMarketDayHigh, cur)} />
         <StatRow label="Gün En Düşük" value={formatCurrency(quote.regularMarketDayLow, cur)} />
-        <StatRow
-          label="Önceki Kapanış"
-          value={formatCurrency(quote.regularMarketPreviousClose, cur)}
-        />
+        <StatRow label="Önceki Kapanış" value={formatCurrency(quote.regularMarketPreviousClose, cur)} />
         <StatRow label="Hacim" value={formatNumber(quote.regularMarketVolume)} />
       </Card>
 
@@ -313,6 +303,19 @@ function OverviewSection({
             color={summary.yearlyChange >= 0 ? colors.positive : colors.negative}
           />
         )}
+      </Card>
+
+      <Card title="Değerleme">
+        <StatRow label="Piyasa Değeri" value={formatNumber(quote.marketCap)} />
+        <StatRow label="F/K (TTM)" value={quote.trailingPE != null ? quote.trailingPE.toFixed(2) : "-"} />
+        <StatRow label="F/K (İleri)" value={quote.forwardPE != null ? quote.forwardPE.toFixed(2) : "-"} />
+        <StatRow label="PD/DD" value={quote.priceToBook != null ? quote.priceToBook.toFixed(2) : "-"} />
+        <StatRow label="HBK (TTM)" value={quote.trailingEps != null ? quote.trailingEps.toFixed(2) : "-"} />
+        <StatRow
+          label="Temettü Verimi"
+          value={quote.dividendYield != null ? formatPercent(quote.dividendYield) : "-"}
+        />
+        <StatRow label="Beta" value={quote.beta != null ? quote.beta.toFixed(2) : "-"} />
       </Card>
 
       {summary?.currentRsi != null && (
@@ -343,36 +346,43 @@ function OverviewSection({
             />
           )}
           {summary.volatility != null && (
-            <StatRow label="Volatilite (yıllık)" value={formatPercent(summary.volatility)} />
+            <StatRow label="Volatilite" value={formatPercent(summary.volatility)} />
           )}
+        </Card>
+      )}
+
+      {(quote.sector || quote.industry) && (
+        <Card title="Şirket">
+          {quote.sector && <StatRow label="Sektör" value={quote.sector} />}
+          {quote.industry && <StatRow label="Endüstri" value={quote.industry} />}
+          {quote.country && <StatRow label="Ülke" value={quote.country} />}
         </Card>
       )}
     </View>
   );
 }
 
-const PERIODS: { id: Range; label: string }[] = [
+const PERIODS = [
   { id: "1mo", label: "1A" },
   { id: "3mo", label: "3A" },
   { id: "6mo", label: "6A" },
   { id: "1y", label: "1Y" },
   { id: "5y", label: "5Y" },
-];
+] as const;
 
 function ChartSection({ symbol, currency }: { symbol: string; currency?: string }) {
   const colors = useColors();
   const { width } = useWindowDimensions();
-  const [period, setPeriod] = useState<Range>("3mo");
+  const [period, setPeriod] = useState<typeof PERIODS[number]["id"]>("3mo");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["yahoo/history", symbol, period, "1d"],
-    queryFn: () => getHistory(symbol, period, "1d"),
-    enabled: !!symbol,
-    staleTime: 5 * 60_000,
-  });
+  const { data, isLoading } = useGetStockHistory(
+    symbol,
+    { period, interval: "1d" },
+    { query: { staleTime: 5 * 60_000, enabled: true } as never },
+  );
 
   const chartData = useMemo(() => {
-    const candles = data?.candles ?? [];
+    const candles = data?.candles || [];
     if (!candles.length) return null;
     const closes = candles.map((c) => c.close);
     const min = Math.min(...closes);
@@ -506,13 +516,118 @@ function ChartSection({ symbol, currency }: { symbol: string; currency?: string 
   );
 }
 
+function FinancialsSection({ symbol }: { symbol: string }) {
+  const colors = useColors();
+  const { data, isLoading } = useGetStockFinancials(symbol, {
+    query: { staleTime: 10 * 60_000, enabled: true } as never,
+  });
+
+  if (isLoading) {
+    return (
+      <View style={[styles.center, { paddingVertical: 60 }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  const income = data?.incomeStatements?.slice(0, 4) || [];
+  const balance = data?.balanceSheets?.slice(0, 4) || [];
+  const cashflow = data?.cashFlows?.slice(0, 4) || [];
+
+  if (!income.length && !balance.length && !cashflow.length) {
+    return (
+      <View style={styles.contentPad}>
+        <Card>
+          <Text style={[styles.subdued, { color: colors.mutedForeground, textAlign: "center" }]}>
+            Finansal veri bulunamadı
+          </Text>
+        </Card>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.contentPad}>
+      {income.length > 0 && (
+        <Card title="Gelir Tablosu">
+          {income.map((row) => (
+            <View
+              key={row.date}
+              style={[styles.finRow, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.finDate, { color: colors.mutedForeground }]}>
+                {formatDate(row.date)}
+              </Text>
+              <View style={styles.finGrid}>
+                <FinCell label="Gelir" value={formatNumber(row.totalRevenue)} />
+                <FinCell label="Brüt Kar" value={formatNumber(row.grossProfit)} />
+                <FinCell label="Net Kar" value={formatNumber(row.netIncome)} />
+                <FinCell label="EBITDA" value={formatNumber(row.ebitda)} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+
+      {balance.length > 0 && (
+        <Card title="Bilanço">
+          {balance.map((row) => (
+            <View
+              key={row.date}
+              style={[styles.finRow, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.finDate, { color: colors.mutedForeground }]}>
+                {formatDate(row.date)}
+              </Text>
+              <View style={styles.finGrid}>
+                <FinCell label="Toplam Varlık" value={formatNumber(row.totalAssets)} />
+                <FinCell label="Toplam Borç" value={formatNumber(row.totalLiab)} />
+                <FinCell label="Özkaynak" value={formatNumber(row.totalStockholderEquity)} />
+                <FinCell label="Nakit" value={formatNumber(row.cash)} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+
+      {cashflow.length > 0 && (
+        <Card title="Nakit Akışı">
+          {cashflow.map((row) => (
+            <View
+              key={row.date}
+              style={[styles.finRow, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.finDate, { color: colors.mutedForeground }]}>
+                {formatDate(row.date)}
+              </Text>
+              <View style={styles.finGrid}>
+                <FinCell label="Faaliyet" value={formatNumber(row.operatingCashflow)} />
+                <FinCell label="Yatırım" value={formatNumber(row.capitalExpenditures)} />
+                <FinCell label="Serbest" value={formatNumber(row.freeCashflow)} />
+                <FinCell label="Net Kar" value={formatNumber(row.netIncome)} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
+    </View>
+  );
+}
+
+function FinCell({ label, value }: { label: string; value: string }) {
+  const colors = useColors();
+  return (
+    <View style={styles.finCell}>
+      <Text style={[styles.finCellLabel, { color: colors.mutedForeground }]}>{label}</Text>
+      <Text style={[styles.finCellValue, { color: colors.foreground }]}>{value}</Text>
+    </View>
+  );
+}
+
 function NewsSection({ symbol }: { symbol: string }) {
   const colors = useColors();
-  const { data, isLoading } = useQuery<NewsItem[]>({
-    queryKey: ["yahoo/news", symbol],
-    queryFn: () => getNews(symbol, 12),
-    enabled: !!symbol,
-    staleTime: 5 * 60_000,
+  const { data, isLoading } = useGetStockNews(symbol, {
+    query: { staleTime: 5 * 60_000, enabled: true } as never,
   });
 
   const openLink = async (url?: string) => {
@@ -552,7 +667,7 @@ function NewsSection({ symbol }: { symbol: string }) {
     <View style={styles.contentPad}>
       {data.map((article, idx) => (
         <Pressable
-          key={`${article.uuid}-${idx}`}
+          key={`${article.link}-${idx}`}
           onPress={() => openLink(article.link)}
           style={({ pressed }) => [
             styles.newsCard,
@@ -575,13 +690,16 @@ function NewsSection({ symbol }: { symbol: string }) {
               </Text>
             )}
           </View>
-          <Text style={[styles.newsTitle, { color: colors.foreground }]} numberOfLines={3}>
+          <Text
+            style={[styles.newsTitle, { color: colors.foreground }]}
+            numberOfLines={3}
+          >
             {article.title}
           </Text>
           <View style={styles.newsFooter}>
             <Feather name="external-link" size={12} color={colors.mutedForeground} />
             <Text style={[styles.newsFooterText, { color: colors.mutedForeground }]}>
-              Tarayıcıda aç
+              Yeni sekmede aç
             </Text>
           </View>
         </Pressable>
@@ -679,6 +797,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   chartFooterValue: { fontFamily: "Inter_600SemiBold", fontSize: 13, marginTop: 2 },
+  finRow: { paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  finDate: { fontFamily: "Inter_500Medium", fontSize: 11, letterSpacing: 0.5, marginBottom: 8 },
+  finGrid: { flexDirection: "row", flexWrap: "wrap" },
+  finCell: { width: "50%", paddingVertical: 4 },
+  finCellLabel: { fontFamily: "Inter_400Regular", fontSize: 11 },
+  finCellValue: { fontFamily: "Inter_600SemiBold", fontSize: 13, marginTop: 2 },
   newsCard: {
     padding: 14,
     borderRadius: 12,

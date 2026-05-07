@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useSearchStocks } from "@workspace/api-client-react";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -16,33 +16,22 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
-import { searchSymbols, type SearchResultItem } from "@/lib/yahoo";
 
-const POPULAR: string[] = [
-  "AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "META",
-  "THYAO.IS", "ASELS.IS", "TUPRS.IS", "GARAN.IS",
-];
-
-type SearchResult = SearchResultItem;
+const POPULAR = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "META", "THYAO.IS", "ASELS.IS", "TUPRS.IS", "GARAN.IS"];
 
 export default function SearchScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [query, setQuery] = useState<string>("");
+  const [query, setQuery] = useState("");
 
-  const trimmed = query.trim();
+  const { data, isFetching } = useSearchStocks(
+    { q: query },
+    { query: { enabled: query.trim().length >= 2, staleTime: 60_000 } as never },
+  );
 
-  const { data, isFetching } = useQuery<SearchResult[]>({
-    queryKey: ["search", trimmed],
-    queryFn: () => searchSymbols(trimmed),
-    enabled: trimmed.length >= 2,
-    staleTime: 60_000,
-  });
-
-  const open = (symbol: string): void => {
-    if (Platform.OS !== "web")
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const open = (symbol: string) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push(`/stock/${encodeURIComponent(symbol)}` as never);
   };
 
@@ -67,7 +56,7 @@ export default function SearchScreen() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Sembol veya şirket adı (AAPL, THYAO)"
+            placeholder="Sembol veya şirket adı (AAPL, THYAO.IS)"
             placeholderTextColor={colors.mutedForeground}
             autoCapitalize="characters"
             autoCorrect={false}
@@ -82,7 +71,7 @@ export default function SearchScreen() {
         </View>
       </View>
 
-      {trimmed.length < 2 ? (
+      {query.trim().length < 2 ? (
         <View style={styles.popularWrap}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
             POPÜLER HİSSELER
@@ -111,15 +100,17 @@ export default function SearchScreen() {
             ))}
           </View>
         </View>
-      ) : isFetching && data == null ? (
+      ) : isFetching && !data ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        <FlatList<SearchResult>
-          data={data ?? []}
+        <FlatList
+          data={data || []}
           keyExtractor={(item) => item.symbol}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+          contentContainerStyle={{
+            paddingBottom: insets.bottom + 16,
+          }}
           ListEmptyComponent={
             <View style={styles.center}>
               <Feather name="search" size={32} color={colors.mutedForeground} />
@@ -147,11 +138,11 @@ export default function SearchScreen() {
                   style={[styles.rowName, { color: colors.mutedForeground }]}
                   numberOfLines={1}
                 >
-                  {item.longname ?? item.shortname ?? ""}
+                  {item.longname || item.shortname || ""}
                 </Text>
               </View>
               <View style={styles.rowMeta}>
-                {item.exchange != null && (
+                {item.exchange && (
                   <Text style={[styles.exchange, { color: colors.mutedForeground }]}>
                     {item.exchange}
                   </Text>
@@ -173,7 +164,11 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  title: { fontFamily: "Inter_700Bold", fontSize: 22, marginBottom: 14 },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    marginBottom: 14,
+  },
   inputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -183,7 +178,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  input: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 14 },
+  input: {
+    flex: 1,
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+  },
   popularWrap: { padding: 20 },
   sectionLabel: {
     fontFamily: "Inter_600SemiBold",
@@ -214,12 +213,6 @@ const styles = StyleSheet.create({
   rowName: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
   rowMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
   exchange: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 40,
-    gap: 12,
-  },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 12 },
   emptyText: { fontFamily: "Inter_400Regular", fontSize: 13, textAlign: "center" },
 });

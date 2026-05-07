@@ -6,6 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { setBaseUrl } from "@workspace/api-client-react";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -16,8 +17,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import colors from "@/constants/colors";
+import { getApiBaseUrl } from "@/lib/api-base";
 
 SplashScreen.preventAutoHideAsync();
+
+const API_BASE = getApiBaseUrl();
+if (API_BASE) {
+  setBaseUrl(API_BASE);
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
