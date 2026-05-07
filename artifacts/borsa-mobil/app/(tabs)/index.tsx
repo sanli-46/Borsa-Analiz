@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useGetWatchlist } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { formatCurrency, formatPercent, formatTime } from "@/lib/format";
+import { getQuotes, type StockQuote } from "@/lib/yahoo";
 
 type MarketTab = "all" | "us" | "bist";
 
@@ -28,41 +29,69 @@ const TABS: { id: MarketTab; label: string }[] = [
 
 const REFRESH_MS = 30_000;
 
+const WATCHLIST: string[] = [
+  // ABD
+  "AAPL",
+  "TSLA",
+  "NVDA",
+  "MSFT",
+  "GOOGL",
+  "META",
+  "AMZN",
+  "AMD",
+  // BIST
+  "THYAO.IS",
+  "ASELS.IS",
+  "GARAN.IS",
+  "TUPRS.IS",
+  "BIMAS.IS",
+  "EREGL.IS",
+];
+
+async function fetchWatchlist(): Promise<StockQuote[]> {
+  return getQuotes(WATCHLIST);
+}
+
 export default function MarketsScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<MarketTab>("all");
 
-  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useGetWatchlist({
-    query: {
-      refetchInterval: REFRESH_MS,
-      staleTime: REFRESH_MS,
-    } as never,
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useQuery<StockQuote[]>({
+    queryKey: ["watchlist"],
+    queryFn: fetchWatchlist,
+    refetchInterval: REFRESH_MS,
+    staleTime: REFRESH_MS,
   });
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    if (activeTab === "all") return data;
-    if (activeTab === "bist") return data.filter((s) => s.symbol?.endsWith(".IS"));
-    return data.filter((s) => !s.symbol?.endsWith(".IS"));
+  const filtered = useMemo((): StockQuote[] => {
+    const list: StockQuote[] = data ?? [];
+    if (activeTab === "all") return list;
+    if (activeTab === "bist") return list.filter((s) => s.symbol.endsWith(".IS"));
+    return list.filter((s) => !s.symbol.endsWith(".IS"));
   }, [data, activeTab]);
 
-  const onTabPress = (id: MarketTab) => {
-    if (Platform.OS !== "web") Haptics.selectionAsync();
+  const onTabPress = (id: MarketTab): void => {
+    if (Platform.OS !== "web") void Haptics.selectionAsync();
     setActiveTab(id);
   };
 
-  const onRowPress = (symbol: string) => {
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(`/stock/${encodeURIComponent(symbol)}` as never);
+  const onRowPress = (symbol: string): void => {
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(("/stock/" + encodeURIComponent(symbol)) as never);
   };
 
   const topInset = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topInset + 12, borderBottomColor: colors.border }]}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: topInset + 12, borderBottomColor: colors.border },
+        ]}
+      >
         <View style={styles.headerRow}>
           <View>
             <Text style={[styles.brand, { color: colors.primary }]}>BORSA</Text>
@@ -116,12 +145,15 @@ export default function MarketsScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
-      ) : error ? (
+      ) : error != null ? (
         <View style={styles.center}>
           <Feather name="alert-triangle" size={32} color={colors.destructive} />
           <Text style={[styles.errorText, { color: colors.foreground }]}>Veri alınamadı</Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
+            {(error as Error)?.message ?? "Yahoo Finance erişimi kontrol edin"}
+          </Text>
           <Pressable
-            onPress={() => refetch()}
+            onPress={() => void refetch()}
             style={({ pressed }) => [
               styles.retryBtn,
               { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
@@ -131,16 +163,14 @@ export default function MarketsScreen() {
           </Pressable>
         </View>
       ) : (
-        <FlatList
+        <FlatList<StockQuote>
           data={filtered}
           keyExtractor={(item) => item.symbol}
-          contentContainerStyle={{
-            paddingBottom: insets.bottom + 16,
-          }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
           refreshControl={
             <RefreshControl
-              refreshing={!!isFetching && !isLoading}
-              onRefresh={() => refetch()}
+              refreshing={isFetching && !isLoading}
+              onRefresh={() => void refetch()}
               tintColor={colors.primary}
               colors={[colors.primary]}
             />
@@ -154,8 +184,11 @@ export default function MarketsScreen() {
             </View>
           }
           renderItem={({ item }) => {
-            const isPos = (item.change ?? 0) >= 0;
-            const cleanSymbol = item.symbol?.replace(".IS", "");
+            const pct = item.regularMarketChangePercent ?? 0;
+            const isPos = pct >= 0;
+            const cleanSymbol = item.symbol.replace(".IS", "");
+            const name = item.shortName ?? item.longName ?? cleanSymbol;
+            const isEmpty = (item.regularMarketPrice ?? 0) === 0;
             return (
               <Pressable
                 onPress={() => onRowPress(item.symbol)}
@@ -173,37 +206,39 @@ export default function MarketsScreen() {
                     style={[styles.name, { color: colors.mutedForeground }]}
                     numberOfLines={1}
                   >
-                    {item.shortName || ""}
+                    {name}
                   </Text>
                 </View>
                 <View style={styles.rowRight}>
                   <Text style={[styles.price, { color: colors.foreground }]}>
-                    {formatCurrency(item.price, item.currency)}
+                    {isEmpty ? "—" : formatCurrency(item.regularMarketPrice, item.currency)}
                   </Text>
-                  <View
-                    style={[
-                      styles.changePill,
-                      {
-                        backgroundColor: isPos
-                          ? "rgba(34, 197, 94, 0.12)"
-                          : "rgba(239, 68, 68, 0.12)",
-                      },
-                    ]}
-                  >
-                    <Feather
-                      name={isPos ? "trending-up" : "trending-down"}
-                      size={11}
-                      color={isPos ? colors.positive : colors.negative}
-                    />
-                    <Text
+                  {!isEmpty && (
+                    <View
                       style={[
-                        styles.changeText,
-                        { color: isPos ? colors.positive : colors.negative },
+                        styles.changePill,
+                        {
+                          backgroundColor: isPos
+                            ? "rgba(34,197,94,0.12)"
+                            : "rgba(239,68,68,0.12)",
+                        },
                       ]}
                     >
-                      {formatPercent(item.changePercent)}
-                    </Text>
-                  </View>
+                      <Feather
+                        name={isPos ? "trending-up" : "trending-down"}
+                        size={11}
+                        color={isPos ? colors.positive : colors.negative}
+                      />
+                      <Text
+                        style={[
+                          styles.changeText,
+                          { color: isPos ? colors.positive : colors.negative },
+                        ]}
+                      >
+                        {formatPercent(pct)}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </Pressable>
             );
@@ -227,38 +262,19 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: 16,
   },
-  brand: {
-    fontSize: 26,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 1.5,
-  },
-  subtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  liveRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-  },
+  brand: { fontSize: 26, fontFamily: "Inter_700Bold", letterSpacing: 1.5 },
+  subtitle: { fontFamily: "Inter_400Regular", fontSize: 12, marginTop: 2 },
+  liveRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
   liveLabel: { fontFamily: "Inter_500Medium", fontSize: 11 },
-  tabs: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  tabs: { flexDirection: "row", gap: 8 },
   tab: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  tabLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-  },
+  tabLabel: { fontFamily: "Inter_600SemiBold", fontSize: 12 },
   row: {
     flexDirection: "row",
     paddingVertical: 14,
@@ -281,9 +297,21 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   changeText: { fontFamily: "Inter_600SemiBold", fontSize: 11 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 12 },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
+    gap: 12,
+  },
   errorText: { fontFamily: "Inter_500Medium", fontSize: 14 },
+  errorSub: { fontFamily: "Inter_400Regular", fontSize: 12, textAlign: "center" },
   emptyText: { fontFamily: "Inter_400Regular", fontSize: 13 },
-  retryBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8, marginTop: 8 },
+  retryBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 8,
+  },
   retryText: { fontFamily: "Inter_600SemiBold", fontSize: 13 },
 });

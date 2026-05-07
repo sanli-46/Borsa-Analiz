@@ -14,9 +14,12 @@
       "backgroundColor": "#0a0e14"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.anonymous.borsamobil"
     },
-    "android": {},
+    "android": {
+      "package": "com.anonymous.borsamobil"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
